@@ -627,6 +627,11 @@ HwcDisplay::Error HwcDisplay::SetPowerMode(PowerMode mode) {
   a_args.blocking = true;
   a_args.power_mode = mode;
   if (!enabled) {
+    // Tear the CRTC down and detach all planes in the same atomic transaction.
+    // Keeping these changes together avoids retaining a plane on an inactive
+    // CRTC without adding a second blocking commit to the power-off path.
+    validated_composition_.reset();
+    a_args.composition = std::make_shared<LayerToPlaneJoiningPlan>();
     a_args.teardown = true;
   }
 
@@ -637,6 +642,13 @@ HwcDisplay::Error HwcDisplay::SetPowerMode(PowerMode mode) {
   // update will try to set it to active again.
   if (!commit_success && !enabled) {
     return HwcDisplay::Error::kBadParameter;
+  }
+
+  // SetConfig() uses a temporary modeset buffer when re-enabling a torn-down
+  // display. Request a fresh validated frame so the physical display cannot be
+  // left scanning out that buffer when no damage is otherwise pending.
+  if (enabled) {
+    hwc_->SendRefreshEventToClient(handle_);
   }
   return HwcDisplay::Error::kNone;
 }
