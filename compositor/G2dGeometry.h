@@ -37,7 +37,9 @@ inline std::optional<G2dBlitGeometry> GetG2dGeometry(const LayerData &layer,
       bi.pitches[0] < uint64_t(bi.width) * 4 || (bi.offsets[0] & 3U) != 0 ||
       layer.pi.alpha != 1.0F || layer.pi.transform.hflip ||
       layer.pi.transform.vflip || layer.pi.transform.rotate90 ||
-      layer.colorspace != Colorspace::kDefault ||
+      (layer.colorspace != Colorspace::kDefault &&
+       !(layer.colorspace == Colorspace::kBt709Ycc &&
+         layer.transfer_func == TransferFunction::kSrgb)) ||
       (layer.transfer_func != TransferFunction::kUnknown &&
        layer.transfer_func != TransferFunction::kSrgb))
     return std::nullopt;
