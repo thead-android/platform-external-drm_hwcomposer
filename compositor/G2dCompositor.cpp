@@ -5,6 +5,10 @@
 
 #include <poll.h>
 #include <sync/sync.h>
+#include <xf86drm.h>
+
+#include <cstdio>
+#include <cstring>
 
 #include "compositor/G2dGeometry.h"
 #include "drm/DrmDevice.h"
@@ -25,12 +29,30 @@ bool FenceDone(const SharedFd &fence) {
 }  // namespace
 
 std::unique_ptr<G2dCompositor> G2dCompositor::Create() {
-  auto *context = th1520_g2d_open("/dev/dri/renderD129");
-  if (!context) {
-    ALOGW("GC620 compositor unavailable");
-    return nullptr;
+  // Switching the 3D driver can change render-node enumeration. Probe the
+  // standard DRM version first, never send etnaviv private ioctls to PowerVR.
+  for (int index = 128; index < 136; ++index) {
+    char node[32];
+    std::snprintf(node, sizeof(node), "/dev/dri/renderD%d", index);
+    int fd = open(node, O_RDWR | O_CLOEXEC);
+    if (fd < 0)
+      continue;
+    auto *version = drmGetVersion(fd);
+    bool etnaviv = version && version->name &&
+                   std::strcmp(version->name, "etnaviv") == 0;
+    if (version)
+      drmFreeVersion(version);
+    close(fd);
+    if (!etnaviv)
+      continue;
+    auto *context = th1520_g2d_open(node);
+    if (context) {
+      ALOGI("GC620 compositor using %s", node);
+      return std::unique_ptr<G2dCompositor>(new G2dCompositor(context));
+    }
   }
-  return std::unique_ptr<G2dCompositor>(new G2dCompositor(context));
+  ALOGW("GC620 compositor unavailable");
+  return nullptr;
 }
 
 G2dCompositor::~G2dCompositor() {
