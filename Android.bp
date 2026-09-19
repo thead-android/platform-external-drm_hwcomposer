@@ -219,14 +219,17 @@ cc_binary {
     init_rc: [":drm_hwcomposer_init_rc"],
 }
 
-// Optional LPi4A bring-up variant, not included in PRODUCT_PACKAGES. Keep it
-// here to reuse drm_hwcomposer's private libdisplay_info dependency visibility.
+// LPi4A variant. Only one composer implementation may be installed in a product.
 cc_binary {
     name: "android.hardware.composer.hwc3-service.th1520-g2d",
+    stem: "android.hardware.composer.hwc3-service.drm",
+    overrides: ["android.hardware.composer.hwc3-service.drm"],
     defaults: ["android.hardware.composer.hwc3-service.drm.defaults"],
     srcs: [":drm_hwcomposer_th1520_g2d"],
     shared_libs: ["libth1520_g2d"],
     cflags: ["-DUSE_TH1520_G2D"],
+    vintf_fragments: [":drm_hwcomposer_vintf_manifest"],
+    init_rc: [":drm_hwcomposer_init_rc"],
     relative_install_path: "hw",
     vendor: true,
 }
