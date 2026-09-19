@@ -119,8 +119,8 @@ struct LayerData {
   std::shared_ptr<IDrmFbIdHandle> fb;
   PresentInfo pi;
   SharedFd acquire_fence;
-  Colorspace colorspace;
-  TransferFunction transfer_func;
+  Colorspace colorspace = Colorspace::kDefault;
+  TransferFunction transfer_func = TransferFunction::kUnknown;
 };
 
 }  // namespace android::drm_hwcomposer

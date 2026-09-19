@@ -221,6 +221,15 @@ cc_binary {
 
 // Used by hwcomposer.drm_imagination
 filegroup {
+    name: "drm_hwcomposer_th1520_g2d",
+    srcs: [
+        "compositor/G2dCompositor.cpp",
+        "bufferinfo/legacy/BufferInfoLibdrm.cpp",
+    ],
+}
+
+// Used by hwcomposer.drm_imagination
+filegroup {
     name: "drm_hwcomposer_platformimagination",
     srcs: ["bufferinfo/legacy/BufferInfoImagination.cpp"],
 }

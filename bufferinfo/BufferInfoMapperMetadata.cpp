@@ -157,6 +157,7 @@ auto BufferInfoMapperMetadata::GetBoInfo(buffer_handle_t handle)
     ALOGE("Failed to get Usage err=%d", err);
     return {};
   }
+  bi.usage = usage;
 
   if ((usage & GRALLOC_USAGE_CURSOR) != 0) {
     if (layouts.size() > 1) {

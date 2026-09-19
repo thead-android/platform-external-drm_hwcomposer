@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 namespace android::drm_hwcomposer {
 
@@ -67,6 +68,9 @@ struct BufferInfo {
    * managed elsewhere. The shared_ptr is used to ensure that the fds are not
    * closed while the BufferInfo is still in use. */
   std::shared_ptr<PrimeFdsSharedBase> fds_shared;
+
+  // Metadata-backed consumers must distinguish unknown usage from unprotected.
+  std::optional<uint64_t> usage;
 };
 
 }  // namespace android::drm_hwcomposer

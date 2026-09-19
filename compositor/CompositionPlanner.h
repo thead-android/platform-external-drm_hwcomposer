@@ -27,6 +27,9 @@ enum class CompositionType;
 class ICompositorDisplay;
 class HwcLayer;
 struct LayerToPlaneJoiningPlan;
+#ifdef USE_TH1520_G2D
+struct G2dFrame;
+#endif
 
 // CompositionPlanner is responsible for determining the mapping between
 // HwcLayer and drm planes. This includes deciding which HwcLayers should be
@@ -58,6 +61,9 @@ class CompositionPlanner {
     // Whether the cursor plane was successfully validated, or |nullopt| if it
     // wasn't attempted.
     std::optional<bool> cursor_plane_validated = std::nullopt;
+#ifdef USE_TH1520_G2D
+    std::shared_ptr<G2dFrame> g2d_frame;
+#endif
   };
 
   virtual ~CompositionPlanner() = default;

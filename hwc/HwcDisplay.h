@@ -45,6 +45,9 @@ class DrmHwc;
 class FlatteningController;
 class HdcpController;
 class VSyncWorker;
+#ifdef USE_TH1520_G2D
+class G2dCompositor;
+#endif
 
 struct AtomicCommitArgs;
 struct AtomicCommitResult;
@@ -105,6 +108,9 @@ class HwcDisplay : public ICompositorDisplay {
   std::vector<const HwcLayer *> GetOrderLayersByZPos() const override;
 
   std::string Dump();
+#ifdef USE_TH1520_G2D
+  std::string DumpG2d() const;
+#endif
 
   auto GetDisplayName() const -> std::string;
 
@@ -369,6 +375,14 @@ class HwcDisplay : public ICompositorDisplay {
 
   std::map<ILayerId, HwcLayer> layers_;
   HwcLayer client_layer_;
+#ifdef USE_TH1520_G2D
+  std::optional<CompositionPlanner::ValidatedComposition> TryG2dComposition();
+  std::unique_ptr<G2dCompositor> g2d_;
+  bool g2d_failed_ = false;
+  bool last_validated_with_g2d_ = false;
+  uint64_t g2d_frames_ = 0;
+  uint64_t g2d_rejected_ = 0;
+#endif
   std::unique_ptr<HwcLayer> writeback_layer_;
   uint16_t virtual_disp_width_{};
   uint16_t virtual_disp_height_{};

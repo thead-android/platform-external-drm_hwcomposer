@@ -269,6 +269,10 @@ std::string DrmHwc::DumpState() {
   std::stringstream output;
 
   output << "-- drm_hwcomposer --\n\n";
+#ifdef USE_TH1520_G2D
+  for (const auto &[id, display] : displays_)
+    output << "Display " << id << display->DumpG2d();
+#endif
 
   std::map<DisplayHandle, std::pair<CompositionStats, CompositionStats>>
       total_stats;

@@ -25,6 +25,10 @@
 #include <ui/ColorSpace.h>
 #include <ui/GraphicTypes.h>
 #include <utils/Trace.h>
+#ifdef USE_TH1520_G2D
+#include <android-base/properties.h>
+#include "compositor/G2dCompositor.h"
+#endif
 
 #include "backend/BackendManager.h"
 #include "compositor/CompositionPlanner.h"
@@ -283,6 +287,45 @@ auto HwcDisplay::QueueConfig(ConfigId config, int64_t desired_time,
   return ConfigError::kNone;
 }
 
+#ifdef USE_TH1520_G2D
+std::optional<CompositionPlanner::ValidatedComposition> HwcDisplay::TryG2dComposition() {
+  if (!android::base::GetBoolProperty("vendor.hwc.g2d.enabled", false) ||
+      g2d_failed_ || is_virtual_ || !pipeline_ || CtmByGpu() ||
+      !color_transform_is_identity_)
+    return std::nullopt;
+  if (!g2d_)
+    g2d_ = G2dCompositor::Create();
+  const auto *config = GetNextConfig();
+  if (!g2d_ || !config)
+    return std::nullopt;
+  const auto &mode = config->mode.GetRawMode();
+  auto frame = g2d_->Prepare(GetPipe(), GetOrderLayersByZPos(),
+                             mode.hdisplay, mode.vdisplay);
+  if (!frame) {
+    ++g2d_rejected_;
+    return std::nullopt;
+  }
+  CompositionPlanner::ValidatedComposition composition;
+  composition.g2d_frame = frame;
+  for (const auto *layer : frame->layers)
+    composition.composition_types[layer] = CompositionType::kDevice;
+  for (const auto *layer : frame->occluded)
+    composition.composition_types[layer] = CompositionType::kDeviceOccluded;
+  if (!TestComposition(composition)) {
+    ++g2d_rejected_;
+    return std::nullopt;
+  }
+  return composition;
+}
+
+std::string HwcDisplay::DumpG2d() const {
+  std::stringstream out;
+  out << " GC620 frames=" << g2d_frames_ << " rejected=" << g2d_rejected_
+      << " disabled_after_error=" << g2d_failed_ << '\n';
+  return out.str();
+}
+#endif
+
 auto HwcDisplay::ValidateStagedComposition() -> std::vector<ChangedLayer> {
   if (validated_composition_.has_value()) {
     ALOGE("%s: Previously validated composition was not presented", __func__);
@@ -315,6 +358,19 @@ auto HwcDisplay::ValidateStagedComposition() -> std::vector<ChangedLayer> {
   }
 
   validated_composition_.emplace(pipeline_->planner->ValidateDisplay(this));
+#ifdef USE_TH1520_G2D
+  // Keep direct scanout and cached/static-scene composition ahead of G2D.
+  const bool has_client = std::any_of(
+      validated_composition_->composition_types.begin(),
+      validated_composition_->composition_types.end(),
+      [](const auto &entry) { return entry.second == CompositionType::kClient; });
+  if (has_client && validated_composition_->flatten_reason != FlattenReason::kStaticScene) {
+    auto composition = TryG2dComposition();
+    if (composition)
+      validated_composition_ = std::move(composition);
+  }
+  last_validated_with_g2d_ = bool(validated_composition_->g2d_frame);
+#endif
 
   // Iterate through the layers to find which layers actually changed.
   std::vector<ChangedLayer> changed_layers;
@@ -421,6 +477,17 @@ auto HwcDisplay::PresentStagedComposition(
       validated_composition_->composition_types
           .emplace(&layer, layer.GetValidatedType());
     }
+#ifdef USE_TH1520_G2D
+    if (last_validated_with_g2d_) {
+      auto composition = TryG2dComposition();
+      if (!composition) {
+        last_validated_with_g2d_ = false;
+        validated_composition_.reset();
+        return false;  // Cannot reuse an old target with newly supplied buffers.
+      }
+      validated_composition_ = std::move(composition);
+    }
+#endif
   }
 
   bool has_client = false;
@@ -690,6 +757,11 @@ void HwcDisplay::Deinit() {
 
     validated_composition_.reset();
     flatcon_.reset();
+#ifdef USE_TH1520_G2D
+    g2d_.reset();
+    last_validated_with_g2d_ = false;
+    g2d_failed_ = false;
+#endif
     hdcpcon_.reset();
     backlight_controller_.reset();
   }
@@ -1082,6 +1154,12 @@ std::optional<AtomicCommitArgs> HwcDisplay::CreateFrameUpdateCommit(
 
   // Use the cached plan, and update the client target buffer if needed.
   if (composition.composition_plan != nullptr) {
+#ifdef USE_TH1520_G2D
+    if (composition.g2d_frame) {
+      composition.composition_plan->plan.front().layer =
+          composition.g2d_frame->target->layer;
+    }
+#endif
     const auto &client_z_order = composition.composition_plan->client_z_order;
     // Client target buffer may be updated since the composition was validated,
     // so get the latest LayerData.
@@ -1092,8 +1170,16 @@ std::optional<AtomicCommitArgs> HwcDisplay::CreateFrameUpdateCommit(
     a_args.composition = composition.composition_plan;
   } else {
     // Construct a new composition plan.
-    a_args.composition = CreateLayerToPlaneJoiningPlan(
-        composition.composition_types);
+#ifdef USE_TH1520_G2D
+    if (composition.g2d_frame) {
+      a_args.composition = LayerToPlaneJoiningPlan::CreateLayerToPlaneJoiningPlan(
+          GetPipe(), {composition.g2d_frame->target->layer});
+    } else
+#endif
+    {
+      a_args.composition = CreateLayerToPlaneJoiningPlan(
+          composition.composition_types);
+    }
   }
 
   if (!a_args.composition) {
@@ -1215,6 +1301,16 @@ bool HwcDisplay::CommitStagedComposition(SharedFd &out_present_fence) {
     return false;
   }
 
+#ifdef USE_TH1520_G2D
+  const auto g2d_frame = validated_composition_->g2d_frame;
+  if (g2d_frame && !g2d_->Render(g2d_frame)) {
+    ALOGE("GC620 render failed; disable optional path and request revalidation");
+    g2d_failed_ = true;
+    last_validated_with_g2d_ = false;
+    validated_composition_.reset();
+    return false;
+  }
+#endif
   auto a_args = CreateFrameUpdateCommit(validated_composition_.value());
   // |validated_composition_| can safely be reset now. |a_args| holds its own
   // pointer to the plan which will remain in scope until the commit is finished
@@ -1232,6 +1328,17 @@ bool HwcDisplay::CommitStagedComposition(SharedFd &out_present_fence) {
     return false;
   }
   out_present_fence = result->present_fence;
+#ifdef USE_TH1520_G2D
+  if (g2d_) {
+    g2d_->Presented(g2d_frame, out_present_fence);
+    if (g2d_frame) {
+      ++g2d_frames_;
+      if (g2d_frames_ <= 3 || g2d_frames_ % 120 == 0)
+        ALOGI("GC620 display=%" PRId64 " frames=%" PRIu64 " layers=%zu",
+              handle_, g2d_frames_, g2d_frame->layers.size());
+    }
+  }
+#endif
   ApplyCommitChanges(*a_args, *result);
   return true;
 }
