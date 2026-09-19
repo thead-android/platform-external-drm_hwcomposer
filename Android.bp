@@ -222,14 +222,13 @@ cc_binary {
 // LPi4A variant. Only one composer implementation may be installed in a product.
 cc_binary {
     name: "android.hardware.composer.hwc3-service.th1520-g2d",
-    stem: "android.hardware.composer.hwc3-service.drm",
     overrides: ["android.hardware.composer.hwc3-service.drm"],
     defaults: ["android.hardware.composer.hwc3-service.drm.defaults"],
     srcs: [":drm_hwcomposer_th1520_g2d"],
     shared_libs: ["libth1520_g2d"],
     cflags: ["-DUSE_TH1520_G2D"],
-    vintf_fragments: [":drm_hwcomposer_vintf_manifest"],
-    init_rc: [":drm_hwcomposer_init_rc"],
+    vintf_fragments: ["hwc3/hwc3-th1520-g2d.xml"],
+    init_rc: ["hwc3/hwc3-th1520-g2d.rc"],
     relative_install_path: "hw",
     vendor: true,
 }
