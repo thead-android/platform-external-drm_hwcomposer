@@ -120,22 +120,31 @@ bool G2dCompositor::Render(const std::shared_ptr<G2dFrame> &frame) {
                            .planes = {{bi.prime_fds[0], bi.offsets[0], bi.pitches[0]}}};
   const th1520_g2d_rect full{0, 0, bi.width, bi.height};
   int fence = -1;
-  if (th1520_g2d_clear(context_, &dst, &full, 0xff000000, -1, &fence) != 0)
-    return false;
-  target.busy_until = MakeSharedFd(fence);
+  const auto &first = geometries.front();
+  const bool covered = !first.source_over && first.destination.x == 0 &&
+                       first.destination.y == 0 &&
+                       first.destination.width == bi.width &&
+                       first.destination.height == bi.height;
+  if (!covered) {
+    if (th1520_g2d_clear(context_, &dst, &full, 0xff000000, -1, &fence) != 0)
+      return false;
+    target.busy_until = MakeSharedFd(fence);
+  }
   for (size_t i = 0; i < frame->layers.size(); ++i) {
     const auto &acquire = frame->layers[i]->GetLayerData().acquire_fence;
     SharedFd input = target.busy_until;
-    if (acquire) {
+    if (acquire && input) {
       int merged = sync_merge("gc620-input", *input, *acquire);
       if (merged < 0)
         return false;
       input = MakeSharedFd(merged);
+    } else if (acquire) {
+      input = acquire;
     }
     auto &g = geometries[i];
     auto operation = g.source_over ? th1520_g2d_blend : th1520_g2d_blit;
     if (operation(context_, &g.image, &g.source, &dst, &g.destination,
-                  *input, &fence) != 0)
+                  input ? *input : -1, &fence) != 0)
       return false;
     target.busy_until = MakeSharedFd(fence);
   }

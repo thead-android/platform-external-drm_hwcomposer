@@ -517,6 +517,10 @@ auto HwcDisplay::PresentStagedComposition(
   if (has_client) {
     ++stats.used_plane_count;
   }
+#ifdef USE_TH1520_G2D
+  if (validated_composition_->g2d_frame)
+    stats.used_plane_count = 1;  // One composed target, not one plane per input.
+#endif
 
   if (!CommitStagedComposition(out_present_fence)) {
     attributes.present_failed = true;
