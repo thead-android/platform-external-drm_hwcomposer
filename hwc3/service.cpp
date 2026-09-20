@@ -18,16 +18,50 @@
 
 #include <android/binder_manager.h>
 #include <android/binder_process.h>
+#include <android-base/unique_fd.h>
+#include <fcntl.h>
 #include <sched.h>
+#include <sys/resource.h>
+
+#include <algorithm>
 
 #include "hwc3/Composer.h"
 #include "utils/log.h"
 
 using aidl::android::hardware::graphics::composer3::impl::Composer;
 
+#ifdef USE_TH1520_G2D
+namespace {
+void ReserveFdTable() {
+  // Linux expands a shared fdtable using synchronize_rcu(). Do this before
+  // starting Binder/display workers, not while duplicating per-frame fences.
+  // 1024 slots cost about 8 KiB on this 64-bit target. No descriptors remain
+  // open and the process's RLIMIT_NOFILE is not changed.
+  rlimit limit{};
+  if (getrlimit(RLIMIT_NOFILE, &limit) != 0 || limit.rlim_cur <= 3)
+    return;
+  const int highest = static_cast<int>(std::min<rlim_t>(limit.rlim_cur, 1024) - 1);
+  android::base::unique_fd source(open("/dev/null", O_RDONLY | O_CLOEXEC));
+  if (!source.ok()) {
+    ALOGW("Could not reserve HWC fdtable: open failed: %d", errno);
+    return;
+  }
+  android::base::unique_fd reserve(fcntl(source.get(), F_DUPFD_CLOEXEC, highest));
+  if (!reserve.ok()) {
+    ALOGW("Could not reserve HWC fdtable: fcntl failed: %d", errno);
+    return;
+  }
+  ALOGI("Reserved HWC fdtable through slot %d before starting workers", reserve.get());
+}
+}  // namespace
+#endif
+
 int main(int /*argc*/, char* argv[]) {
   (void)argv;
   ALOGI("hwc3-drm starting up");
+#ifdef USE_TH1520_G2D
+  ReserveFdTable();
+#endif
 
   // same as SF main thread
   struct sched_param param = {0};
